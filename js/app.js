@@ -3,10 +3,12 @@ const getConfigBtn = document.querySelector('.get-btn');
 const downloadBtn = document.querySelector('.download-btn');
 const wireGuardConfig = document.querySelector('.wire-guard-config');
 const v2rayConfig = document.querySelector('.v2ray-config');
+const container = document.querySelector('.container');
 
 // Event Listener for Config Button
 getConfigBtn.addEventListener('click', async () => {
-    getConfigBtn.style.transform = 'none';
+    getConfigBtn.disabled = true;
+    getConfigBtn.textContent = 'Generating...';
     console.log('Button clicked!');
     try {
         showSpinner();
@@ -17,19 +19,34 @@ getConfigBtn.addEventListener('click', async () => {
         if (accountData) generateConfig(accountData, privateKey);
     } catch (error) {
         console.error('Error processing configuration:', error);
+        showPopup('Failed to generate config. Please try again.', 'error');
     } finally {
         hideSpinner();
+        getConfigBtn.disabled = false;
+        getConfigBtn.textContent = 'Get Free Config';
+        // Scroll to the config section after generating
+        setTimeout(() => {
+            if (wireGuardConfig.firstChild) {
+                wireGuardConfig.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+        }, 300);
     }
 });
 
 // Fetch Public and Private Keys
 const fetchKeys = async () => {
-    const response = await fetch('https://www.iranguard.workers.dev/keys');
-    const data = await response.text();
-    return {
-        publicKey: extractKey(data, 'PublicKey'),
-        privateKey: extractKey(data, 'PrivateKey'),
-    };
+    try {
+        const response = await fetch('https://www.iranguard.workers.dev/keys');
+        if (!response.ok) throw new Error(`Failed to fetch keys: ${response.status}`);
+        const data = await response.text();
+        return {
+            publicKey: extractKey(data, 'PublicKey'),
+            privateKey: extractKey(data, 'PrivateKey'),
+        };
+    } catch (error) {
+        console.error('Error fetching keys:', error);
+        throw error;
+    }
 };
 
 // Extract Specific Key from Text Data
@@ -39,25 +56,30 @@ const extractKey = (data, keyName) =>
 // Fetch Account Configuration
 const fetchAccount = async (publicKey, installId, fcmToken) => {
     const apiUrl = 'https://www.iranguard.workers.dev/wg';
-    const response = await fetch(apiUrl, {
-        method: 'POST',
-        headers: {
-            'User-Agent': 'okhttp/3.12.1',
-            'CF-Client-Version': 'a-6.10-2158',
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-            key: publicKey,
-            install_id: installId,
-            fcm_token: fcmToken,
-            tos: new Date().toISOString(),
-            model: 'PC',
-            serial_number: installId,
-            locale: 'de_DE',
-        }),
-    });
-    if (!response.ok) throw new Error(`Failed to fetch account: ${response.status}`);
-    return response.json();
+    try {
+        const response = await fetch(apiUrl, {
+            method: 'POST',
+            headers: {
+                'User-Agent': 'okhttp/3.12.1',
+                'CF-Client-Version': 'a-6.10-2158',
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                key: publicKey,
+                install_id: installId,
+                fcm_token: fcmToken,
+                tos: new Date().toISOString(),
+                model: 'PC',
+                serial_number: installId,
+                locale: 'de_DE',
+            }),
+        });
+        if (!response.ok) throw new Error(`Failed to fetch account: ${response.status}`);
+        return response.json();
+    } catch (error) {
+        console.error('Error fetching account:', error);
+        throw error;
+    }
 };
 
 // Generate and Display Configurations
@@ -74,6 +96,11 @@ const generateConfig = (data, privateKey) => {
     updateDOM(wireGuardConfig, 'WireGuard Format', 'wireguardBox', wireGuardText, 'message1');
     updateDOM(v2rayConfig, 'V2Ray Format', 'v2rayBox', v2rayText, 'message2');
     downloadBtn.style.display = 'block';
+    
+    // Add event listeners to newly created copy buttons
+    document.querySelectorAll('.copy-button').forEach(btn => {
+        btn.addEventListener('click', handleCopyButtonClick);
+    });
 };
 
 // Generate WireGuard Configuration Text
@@ -108,7 +135,6 @@ const generateV2RayURL = (privateKey, publicKey, ipv4, ipv6, reserved) =>
 // Update DOM with Configurations
 const updateDOM = (container, title, textareaId, content, messageId) => {
     container.innerHTML = `
-        
         <h2>${title}</h2>
         <textarea id="${textareaId}" class="config-box visible" readonly>${content.trim()}</textarea>
         <button class="copy-button" data-target="${textareaId}" data-message="${messageId}">Copy ${title} Config</button>
@@ -127,36 +153,51 @@ const hideSpinner = () => {
     if (spinner) spinner.style.display = 'none';
 };
 
-// Global Event Listener for Copy Buttons
-document.addEventListener('click', async (e) => {
-    if (e.target.classList.contains('copy-button')) {
-        const targetId = e.target.getAttribute('data-target');
-        const messageId = e.target.getAttribute('data-message');
-        try {
-            const textArea = document.getElementById(targetId);
-            await navigator.clipboard.writeText(textArea.value);
-            showCopyMessage(messageId, 'Config copied!');
-        } catch {
-            showCopyMessage(messageId, 'Failed to copy.');
-        }
+// Handle Copy Button Click
+const handleCopyButtonClick = async function(e) {
+    const targetId = this.getAttribute('data-target');
+    const messageId = this.getAttribute('data-message');
+    try {
+        const textArea = document.getElementById(targetId);
+        await navigator.clipboard.writeText(textArea.value);
+        showPopup('Config copied successfully!');
+        showCopyMessage(messageId, 'Copied!');
+    } catch (error) {
+        console.error('Copy failed:', error);
+        showPopup('Failed to copy, please try again.', 'error');
+        showCopyMessage(messageId, 'Failed to copy');
     }
-});
+};
 
 // Show Copy Success or Error Message
 const showCopyMessage = (messageId, message) => {
-    const showPopup = (message) => {
-        const popup = document.createElement('div');
-        popup.className = 'popup-message';
-        popup.textContent = message;
-        document.body.appendChild(popup);
-        setTimeout(() => popup.remove(), 2000);
-    };
-
-    showPopup(message);
-
     const messageElement = document.getElementById(messageId);
-    messageElement.textContent = message;
-    setTimeout(() => (messageElement.textContent = ''), 2000);
+    if (messageElement) {
+        messageElement.textContent = message;
+        messageElement.classList.add('visible');
+        setTimeout(() => {
+            messageElement.classList.remove('visible');
+            messageElement.textContent = '';
+        }, 2000);
+    }
+};
+
+// Show popup notification
+const showPopup = (message, type = 'success') => {
+    const popup = document.createElement('div');
+    popup.className = 'popup-message';
+    popup.textContent = message;
+    
+    if (type === 'error') {
+        popup.style.backgroundColor = '#d32f2f';
+    }
+    
+    document.body.appendChild(popup);
+    setTimeout(() => {
+        if (popup.parentNode) {
+            popup.parentNode.removeChild(popup);
+        }
+    }, 2500);
 };
 
 // Generate Random String
@@ -170,7 +211,12 @@ const generateRandomString = (length) =>
 // Download Configuration as File
 downloadBtn.addEventListener('click', () => {
     const content = document.querySelector('#wireguardBox')?.value || "No configuration available";
+    if (content === "No configuration available") {
+        showPopup('No configuration to download', 'error');
+        return;
+    }
     downloadConfig('wireguard.conf', content);
+    showPopup('Configuration file downloaded');
 });
 
 const downloadConfig = (fileName, content) => {
@@ -182,3 +228,21 @@ const downloadConfig = (fileName, content) => {
     element.click();
     document.body.removeChild(element);
 };
+
+// Check for viewport size changes
+function checkViewportSize() {
+    if (window.innerWidth <= 480) {
+        // For very small screens
+        container.style.padding = '15px';
+    } else if (window.innerWidth <= 768) {
+        // For small screens
+        container.style.padding = '20px';
+    } else {
+        // For larger screens
+        container.style.padding = '32px';
+    }
+}
+
+// Run on page load and when window is resized
+window.addEventListener('load', checkViewportSize);
+window.addEventListener('resize', checkViewportSize);
