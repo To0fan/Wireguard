@@ -1,0 +1,2 @@
+# wg
+wireguard Conifg Generator
